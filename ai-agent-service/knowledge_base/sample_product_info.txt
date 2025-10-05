@@ -1,0 +1,39 @@
+# Sample Product Information
+
+This is a sample knowledge base file. Replace with your actual product PDFs.
+
+## Product Overview
+Our company provides innovative business solutions that help companies grow and scale.
+
+## Key Features
+- Feature 1: Advanced analytics
+- Feature 2: Real-time monitoring
+- Feature 3: Custom integrations
+- Feature 4: 24/7 support
+
+## Pricing
+- Basic Plan: $99/month
+- Professional Plan: $299/month
+- Enterprise Plan: Custom pricing
+
+## Benefits
+- Save up to 30% on operational costs
+- Increase productivity by 40%
+- Reduce manual work by 50%
+- Scale without additional resources
+
+## Case Studies
+- Company A: Reduced costs by 35% in 3 months
+- Company B: Increased revenue by 50% in 6 months
+- Company C: Automated 70% of manual processes
+
+## Contact
+- Email: sales@company.com
+- Phone: +7 (777) 123-4567
+- Website: www.company.com
+
+To use real product information:
+1. Create PDF files with your product details
+2. Place them in this directory (knowledge_base/)
+3. Delete this sample file
+4. Restart the AI Agent Service

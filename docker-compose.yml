@@ -1,0 +1,158 @@
+version: '3.8'
+
+services:
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: whatsapp-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for PROJECT 1
+  postgres-gateway:
+    image: postgres:15
+    container_name: whatsapp-postgres-gateway
+    environment:
+      POSTGRES_DB: whatsapp_gateway
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - gateway-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for PROJECT 2
+  postgres-agent:
+    image: postgres:15
+    container_name: whatsapp-postgres-agent
+    environment:
+      POSTGRES_DB: ai_agent
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5433:5432"
+    volumes:
+      - agent-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PROJECT 1: WhatsApp Gateway
+  whatsapp-gateway:
+    build:
+      context: ./whatsapp-gateway
+      dockerfile: Dockerfile
+    container_name: whatsapp-gateway
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres-gateway:
+        condition: service_healthy
+    environment:
+      # Project
+      PROJECT_NAME: whatsapp-gateway
+
+      # Wappi API - REPLACE WITH YOUR CREDENTIALS
+      WAPPI_TOKEN: ${WAPPI_TOKEN}
+      WAPPI_PROFILE_ID: ${WAPPI_PROFILE_ID}
+      WAPPI_PHONE_NUMBER: ${WAPPI_PHONE_NUMBER}
+      WAPPI_BASE_URL: https://wappi.pro
+
+      # Database
+      DATABASE_URL: postgresql://neondb_owner:npg_SwrTZs7Goz3E@ep-sparkling-unit-ag1o345l-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+
+      # RabbitMQ
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672/
+      QUEUE_INCOMING_MESSAGES: incoming_messages
+      QUEUE_OUTGOING_MESSAGES: outgoing_messages
+      QUEUE_VOICE_TRANSCRIPTION: voice_transcription
+
+      # Gemini API - REPLACE WITH YOUR KEY
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: gemini-2.0-flash-exp
+
+      # Settings
+      POLLING_INTERVAL: 5
+      LOG_LEVEL: INFO
+      TIMEZONE: Asia/Almaty
+      HEALTH_CHECK_PORT: 8000
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    volumes:
+      - ./whatsapp-gateway/logs:/app/logs
+
+  # PROJECT 2: AI Agent Service
+  ai-agent-service:
+    build:
+      context: ./ai-agent-service
+      dockerfile: Dockerfile
+    container_name: ai-agent-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres-agent:
+        condition: service_healthy
+      whatsapp-gateway:
+        condition: service_started
+    environment:
+      # Project
+      PROJECT_NAME: ai-agent-service
+
+      # Gemini API - REPLACE WITH YOUR KEY
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: gemini-2.0-flash-exp
+
+      # Database
+      DATABASE_URL: postgresql://neondb_owner:npg_SwrTZs7Goz3E@ep-sparkling-unit-ag1o345l-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+
+      # RabbitMQ
+      RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672/
+      QUEUE_INCOMING_MESSAGES: incoming_messages
+      QUEUE_OUTGOING_MESSAGES: outgoing_messages
+
+      # Settings
+      MAX_CONTEXT_MESSAGES: 20
+      ENABLE_FOLLOW_UPS: true
+      FOLLOW_UP_INTERVALS: 24,72,168,336,720
+      TIMEZONE: Asia/Almaty
+      WORKING_HOURS_START: 10
+      WORKING_HOURS_END: 18
+
+      # Knowledge Base
+      KNOWLEDGE_BASE_PATH: ./knowledge_base/
+      PDF_CACHE_ENABLED: true
+
+      # Logging
+      LOG_LEVEL: INFO
+      HEALTH_CHECK_PORT: 8001
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    volumes:
+      - ./ai-agent-service/logs:/app/logs
+      - ./ai-agent-service/knowledge_base:/app/knowledge_base
+
+volumes:
+  gateway-db-data:
+  agent-db-data:
+
+networks:
+  default:
+    name: whatsapp-ai-network

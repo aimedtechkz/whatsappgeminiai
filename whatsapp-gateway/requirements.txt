@@ -1,0 +1,41 @@
+# WhatsApp Gateway Service - Dependencies
+
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.13.0
+
+# Queue Management
+pika==1.3.2  # RabbitMQ
+redis==5.0.1  # Alternative queue option
+
+# HTTP Client
+requests==2.31.0
+httpx==0.25.2
+
+# AI - Gemini (for voice transcription)
+google-generativeai==0.3.1
+
+# Voice Transcription - Local Whisper
+faster-whisper==1.0.0
+
+# Environment & Configuration
+python-dotenv==1.0.0
+
+# Logging
+loguru==0.7.2
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Development & Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
