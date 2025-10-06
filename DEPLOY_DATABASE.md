@@ -14,7 +14,7 @@ Both `.env` files should have your Neon.tech DATABASE_URL:
 
 **ai-agent-service/.env:**
 ```env
-DATABASE_URL="postgresql://neondb_owner:npg_SwrTZs7Goz3E@ep-sparkling-unit-ag1o345l-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL="postgresql://your_neon_user:your_password@your-host.neon.tech/neondb?sslmode=require&channel_binding=require"
 ```
 
 **whatsapp-gateway/.env:**
@@ -113,10 +113,10 @@ pip install -r requirements.txt
 ### **Step 2: Set environment variable**
 ```bash
 # Windows
-set DATABASE_URL="postgresql://neondb_owner:npg_SwrTZs7Goz3E@..."
+set DATABASE_URL="postgresql://your_user:your_password@your-host.neon.tech/neondb?sslmode=require"
 
 # Linux/Mac
-export DATABASE_URL="postgresql://neondb_owner:npg_SwrTZs7Goz3E@..."
+export DATABASE_URL="postgresql://your_user:your_password@your-host.neon.tech/neondb?sslmode=require"
 ```
 
 ### **Step 3: Run init script**

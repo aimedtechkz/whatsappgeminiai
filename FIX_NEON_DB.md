@@ -17,7 +17,7 @@ In your `.env` files, wrap the DATABASE_URL in quotes:
 
 #### **ai-agent-service/.env**
 ```env
-DATABASE_URL="postgresql://neondb_owner:npg_SwrTZs7Goz3E@ep-sparkling-unit-ag1o345l-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL="postgresql://your_user:your_password@your-host.neon.tech/neondb?sslmode=require&channel_binding=require"
 ```
 
 #### **whatsapp-gateway/.env**
@@ -50,7 +50,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-2.0-flash-exp
 
 # Neon.tech Database (QUOTED!)
-DATABASE_URL="postgresql://neondb_owner:npg_SwrTZs7Goz3E@ep-sparkling-unit-ag1o345l-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL="postgresql://your_user:your_password@your-host.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 # RabbitMQ (from Docker Compose)
 RABBITMQ_URL=amqp://admin:admin123@localhost:5672/

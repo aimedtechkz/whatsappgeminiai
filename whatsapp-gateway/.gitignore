@@ -1,6 +1,16 @@
-# Environment variables
+# Environment variables - NEVER COMMIT THESE!
 .env
 .env.local
+.env.*.local
+*.env
+
+# Secrets (additional protection)
+secrets.json
+credentials.json
+config.json
+*.pem
+*.key
+*.crt
 
 # Python
 __pycache__/
@@ -28,6 +38,7 @@ wheels/
 venv/
 ENV/
 env/
+.venv
 
 # IDEs
 .vscode/
@@ -52,6 +63,14 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+.nox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
 
 # Alembic
 alembic/versions/*.py

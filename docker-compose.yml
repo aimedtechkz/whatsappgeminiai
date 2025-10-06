@@ -74,8 +74,8 @@ services:
       WAPPI_PHONE_NUMBER: ${WAPPI_PHONE_NUMBER}
       WAPPI_BASE_URL: https://wappi.pro
 
-      # Database
-      DATABASE_URL: postgresql://neondb_owner:npg_SwrTZs7Goz3E@ep-sparkling-unit-ag1o345l-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      # Database - USE ENVIRONMENT VARIABLE FROM .env
+      DATABASE_URL: ${DATABASE_URL}
 
       # RabbitMQ
       RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672/
@@ -119,8 +119,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: gemini-2.0-flash-exp
 
-      # Database
-      DATABASE_URL: postgresql://neondb_owner:npg_SwrTZs7Goz3E@ep-sparkling-unit-ag1o345l-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      # Database - USE ENVIRONMENT VARIABLE FROM .env
+      DATABASE_URL: ${DATABASE_URL}
 
       # RabbitMQ
       RABBITMQ_URL: amqp://admin:admin123@rabbitmq:5672/

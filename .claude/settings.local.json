@@ -7,7 +7,14 @@
       "Bash(for i in {1..5})",
       "Bash(do curl -s http://localhost:8001/health)",
       "Bash(echo:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(git log:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []

@@ -3,14 +3,7 @@
 .env.local
 .env.*.local
 *.env
-
-# Secrets (additional protection)
-secrets.json
-credentials.json
-config.json
-*.pem
-*.key
-*.crt
+**/.env
 
 # Python
 __pycache__/
@@ -33,6 +26,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # Virtual Environment
 venv/
@@ -46,6 +40,7 @@ env/
 *.swp
 *.swo
 *~
+.DS_Store
 
 # Logs
 logs/
@@ -72,9 +67,18 @@ htmlcov/
 # pyenv
 .python-version
 
-# Alembic
-alembic/versions/*.py
-!alembic/versions/__init__.py
+# Secrets (additional protection)
+secrets.json
+credentials.json
+config.json
+*.pem
+*.key
+*.crt
 
-# Knowledge Base Cache
-knowledge_base/.cache/
+# Claude Code
+.claude/
+
+# Documentation and SQL files
+documentation/
+*.md
+*.sql
