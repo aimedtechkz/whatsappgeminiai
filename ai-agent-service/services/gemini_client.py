@@ -19,7 +19,8 @@ class GeminiClient:
         """Initialize Gemini client with API key"""
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model_name = settings.GEMINI_MODEL
-        self.max_retries = 3
+        self.max_retries = 5
+        self.base_delay = 2  # Base delay between requests in seconds
 
     def generate_response(
         self,
@@ -40,6 +41,10 @@ class GeminiClient:
         """
         for attempt in range(self.max_retries):
             try:
+                # Add base delay to avoid rate limits
+                if attempt > 0:
+                    time.sleep(self.base_delay)
+
                 # Create model (system_instruction not supported in older version)
                 model = genai.GenerativeModel(
                     model_name=self.model_name,
@@ -74,10 +79,10 @@ class GeminiClient:
             except Exception as e:
                 error_msg = str(e)
 
-                # Handle rate limiting
-                if "429" in error_msg or "quota" in error_msg.lower():
-                    wait_time = 5 * (attempt + 1)
-                    logger.warning(f"Rate limited. Waiting {wait_time} seconds...")
+                # Handle rate limiting with exponential backoff
+                if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
+                    wait_time = 10 * (2 ** attempt)  # Exponential: 10, 20, 40, 80, 160 seconds
+                    logger.warning(f"Rate limited. Waiting {wait_time} seconds (attempt {attempt + 1}/{self.max_retries})...")
                     time.sleep(wait_time)
                     continue
 
@@ -108,6 +113,10 @@ class GeminiClient:
         """
         for attempt in range(self.max_retries):
             try:
+                # Add base delay to avoid rate limits
+                if attempt > 0:
+                    time.sleep(self.base_delay)
+
                 model = genai.GenerativeModel(
                     model_name=self.model_name,
                     generation_config=genai.GenerationConfig(
@@ -157,10 +166,10 @@ class GeminiClient:
             except Exception as e:
                 error_msg = str(e)
 
-                # Handle rate limiting
-                if "429" in error_msg or "quota" in error_msg.lower():
-                    wait_time = 5 * (attempt + 1)
-                    logger.warning(f"Rate limited. Waiting {wait_time} seconds...")
+                # Handle rate limiting with exponential backoff
+                if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
+                    wait_time = 10 * (2 ** attempt)  # Exponential: 10, 20, 40, 80, 160 seconds
+                    logger.warning(f"Rate limited. Waiting {wait_time} seconds (attempt {attempt + 1}/{self.max_retries})...")
                     time.sleep(wait_time)
                     continue
 
@@ -186,6 +195,10 @@ class GeminiClient:
         """
         for attempt in range(self.max_retries):
             try:
+                # Add base delay to avoid rate limits
+                if attempt > 0:
+                    time.sleep(self.base_delay)
+
                 model = genai.GenerativeModel(model_name=self.model_name)
 
                 # Upload audio file
@@ -206,10 +219,10 @@ class GeminiClient:
             except Exception as e:
                 error_msg = str(e)
 
-                # Handle rate limiting
-                if "429" in error_msg or "quota" in error_msg.lower():
-                    wait_time = 5 * (attempt + 1)
-                    logger.warning(f"Rate limited. Waiting {wait_time} seconds...")
+                # Handle rate limiting with exponential backoff
+                if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
+                    wait_time = 10 * (2 ** attempt)  # Exponential: 10, 20, 40, 80, 160 seconds
+                    logger.warning(f"Rate limited. Waiting {wait_time} seconds (attempt {attempt + 1}/{self.max_retries})...")
                     time.sleep(wait_time)
                     continue
 

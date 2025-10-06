@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     WORKING_HOURS_START: int = int(os.getenv("WORKING_HOURS_START", "10"))
     WORKING_HOURS_END: int = int(os.getenv("WORKING_HOURS_END", "18"))
 
+    # Message Grouping (Debounce)
+    MESSAGE_GROUP_TIMEOUT: float = float(os.getenv("MESSAGE_GROUP_TIMEOUT", "4.0"))  # seconds to wait after last message
+    MAX_MESSAGES_IN_GROUP: int = int(os.getenv("MAX_MESSAGES_IN_GROUP", "10"))  # max messages before forced processing
+
     # Follow-up intervals (in hours)
     @property
     def FOLLOW_UP_INTERVALS(self) -> List[int]:

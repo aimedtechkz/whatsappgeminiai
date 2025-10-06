@@ -88,17 +88,33 @@ class MessageSenderService:
     def mark_message_as_sent(self, message_id: str, db: Session, status: str = "sent") -> None:
         """Update message status in database"""
         try:
-            message_log = MessageLog(
-                message_id=message_id or f"outgoing_{int(datetime.now().timestamp())}",
-                phone_number="unknown",
-                direction="outgoing",
-                message_text="",
-                queue_status=status,
-                wappi_status=status,
-                processed_at=datetime.now()
-            )
-            db.add(message_log)
-            db.commit()
+            msg_id = message_id or f"outgoing_{int(datetime.now().timestamp())}"
+
+            # Check if message already exists
+            existing_message = db.query(MessageLog).filter(
+                MessageLog.message_id == msg_id
+            ).first()
+
+            if existing_message:
+                # Update existing message
+                existing_message.queue_status = status
+                existing_message.wappi_status = status
+                existing_message.processed_at = datetime.now()
+                db.commit()
+                logger.debug(f"Updated existing message {msg_id} status to {status}")
+            else:
+                # Create new message log
+                message_log = MessageLog(
+                    message_id=msg_id,
+                    phone_number="unknown",
+                    direction="outgoing",
+                    message_text="",
+                    queue_status=status,
+                    wappi_status=status,
+                    processed_at=datetime.now()
+                )
+                db.add(message_log)
+                db.commit()
         except Exception as e:
             logger.error(f"Failed to update message status: {e}")
             db.rollback()

@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     QUEUE_OUTGOING_MESSAGES: str = os.getenv("QUEUE_OUTGOING_MESSAGES", "outgoing_messages")
     QUEUE_VOICE_TRANSCRIPTION: str = os.getenv("QUEUE_VOICE_TRANSCRIPTION", "voice_transcription")
 
-    # Gemini API (for voice transcription)
+    # AI APIs (for voice transcription)
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
 

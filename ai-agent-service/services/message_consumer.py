@@ -12,6 +12,7 @@ import pika
 from services.ai_moderator import AIModeratorService
 from services.ai_sales_agent import AISalesAgentService
 from services.follow_up_scheduler import FollowUpSchedulerService
+from services.message_buffer import MessageBuffer
 from config.queue import QueueManager
 from config.settings import settings
 from config.database import get_db
@@ -28,6 +29,14 @@ class MessageConsumerService:
         self.follow_up_scheduler = FollowUpSchedulerService()
         # Create dedicated queue manager for this consumer (thread-safe)
         self.queue_manager = QueueManager()
+
+        # Initialize message buffer with debounce
+        self.message_buffer = MessageBuffer(
+            timeout=settings.MESSAGE_GROUP_TIMEOUT,
+            max_messages=settings.MAX_MESSAGES_IN_GROUP
+        )
+        # Set callback for when buffer is ready to process
+        self.message_buffer.set_process_callback(self.process_buffered_messages)
 
     def get_or_create_contact(
         self,
@@ -76,10 +85,22 @@ class MessageConsumerService:
     ) -> Message:
         """Save incoming message to database"""
         try:
+            message_id = message_data.get("message_id")
+
+            # Check if message already exists
+            existing_message = db.query(Message).filter(
+                Message.message_id == message_id
+            ).first()
+
+            if existing_message:
+                logger.debug(f"Message {message_id} already exists in database, skipping")
+                return existing_message
+
+            # Create new message
             message = Message(
                 contact_id=contact_id,
                 phone_number=message_data.get("phone_number"),
-                message_id=message_data.get("message_id"),
+                message_id=message_id,
                 message_text=message_data.get("message_text"),
                 is_from_bot=False,
                 is_voice=message_data.get("is_voice", False),
@@ -200,6 +221,83 @@ class MessageConsumerService:
             logger.error(f"Error sending engagement message: {e}")
             db.rollback()
 
+    def process_buffered_messages(self, phone_number: str) -> None:
+        """
+        Process all buffered messages for a contact
+        Called by MessageBuffer when timer expires or buffer is full
+
+        Args:
+            phone_number: Contact phone number
+        """
+        db = next(get_db())
+
+        try:
+            # Get all buffered messages
+            buffered_messages = self.message_buffer.get_messages(phone_number)
+
+            if not buffered_messages:
+                logger.warning(f"No buffered messages found for {phone_number}")
+                return
+
+            logger.info(
+                f"🔄 Processing {len(buffered_messages)} buffered messages for {phone_number}"
+            )
+
+            # Get contact info from first message
+            first_message_data = buffered_messages[0]
+            contact_info = first_message_data.get("contact_info", {})
+
+            # Get or create contact
+            contact = self.get_or_create_contact(phone_number, contact_info, db)
+
+            if not contact:
+                logger.error(f"Failed to get/create contact for {phone_number}")
+                self.message_buffer.clear_buffer(phone_number)
+                return
+
+            # Save all messages to database
+            saved_messages = []
+            for message_data in buffered_messages:
+                message = self.save_message(contact.id, message_data, db)
+                if message:
+                    saved_messages.append(message)
+
+            if not saved_messages:
+                logger.error(f"Failed to save any messages for contact {contact.id}")
+                self.message_buffer.clear_buffer(phone_number)
+                return
+
+            logger.success(f"💾 Saved {len(saved_messages)} messages for {phone_number}")
+
+            # Combine message texts
+            combined_text = "\n".join([
+                msg.message_text for msg in saved_messages
+            ])
+
+            # Create a synthetic "combined" message object for routing
+            # Use the last message as base, but with combined text
+            combined_message = saved_messages[-1]
+            combined_message.message_text = combined_text
+
+            logger.debug(f"Combined message text ({len(combined_text)} chars): {combined_text[:200]}...")
+
+            # Route to handler with combined message
+            self.route_to_handler(contact, combined_message, db)
+
+            # Clear buffer after successful processing
+            cleared = self.message_buffer.clear_buffer(phone_number)
+            logger.success(f"✅ Processed {len(saved_messages)} messages for {phone_number}, cleared {cleared} from buffer")
+
+        except Exception as e:
+            logger.error(f"Error processing buffered messages for {phone_number}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Clear buffer even on error to prevent stuck messages
+            self.message_buffer.clear_buffer(phone_number)
+
+        finally:
+            db.close()
+
     def route_to_handler(
         self,
         contact: Contact,
@@ -280,52 +378,36 @@ class MessageConsumerService:
         properties: pika.spec.BasicProperties,
         body: bytes
     ) -> None:
-        """Process incoming message from queue"""
-        db = next(get_db())
-
+        """
+        Receive incoming message from queue and add to buffer
+        Messages are grouped and processed after debounce timeout
+        """
         try:
             # Parse message
             message_data = json.loads(body.decode())
-            logger.info(f"📥 Processing incoming message from {message_data.get('phone_number')}")
-
             phone_number = message_data.get("phone_number")
-            contact_info = message_data.get("contact_info", {})
 
             if not phone_number:
                 logger.error("Missing phone_number in message")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
-            # Get or create contact
-            contact = self.get_or_create_contact(phone_number, contact_info, db)
+            logger.info(f"📥 Received message from {phone_number}, adding to buffer")
 
-            if not contact:
-                logger.error(f"Failed to get/create contact for {phone_number}")
-                ch.basic_ack(delivery_tag=method.delivery_tag)
-                return
+            # Add to buffer (will trigger processing after timeout or when buffer is full)
+            self.message_buffer.add_message(phone_number, message_data)
 
-            # Save message
-            message = self.save_message(contact.id, message_data, db)
-
-            if not message:
-                logger.error(f"Failed to save message for contact {contact.id}")
-                ch.basic_ack(delivery_tag=method.delivery_tag)
-                return
-
-            # Route to handler
-            self.route_to_handler(contact, message, db)
-
-            # Acknowledge message
+            # Acknowledge immediately - don't block queue
             ch.basic_ack(delivery_tag=method.delivery_tag)
-            logger.success(f"✅ Processed message for {phone_number}")
+
+            # Log buffer stats
+            buffer_size = self.message_buffer.get_buffer_size(phone_number)
+            logger.debug(f"Buffer size for {phone_number}: {buffer_size}")
 
         except Exception as e:
-            logger.error(f"Error processing incoming message: {e}")
-            # Acknowledge to remove from queue
+            logger.error(f"Error receiving incoming message: {e}")
+            # Acknowledge to remove from queue even on error
             ch.basic_ack(delivery_tag=method.delivery_tag)
-
-        finally:
-            db.close()
 
     def start_consuming(self) -> None:
         """Start consuming messages from incoming queue"""

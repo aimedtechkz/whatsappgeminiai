@@ -1,13 +1,17 @@
 """
 Voice Transcription Service
-Transcribes voice messages using local Faster-Whisper
+Transcribes voice messages using OpenAI Whisper API with OGG to MP3 conversion
 """
 import json
-import io
 from datetime import datetime
 from typing import Dict, Any
 from loguru import logger
 import pika
+import google.generativeai as genai
+from openai import OpenAI
+from pydub import AudioSegment
+import tempfile
+import os
 
 from services.wappi_client import WappiClient
 from config.queue import QueueManager
@@ -15,25 +19,19 @@ from config.settings import settings
 from config.database import get_db
 from models.message_log import MessageLog
 
-# Import Faster-Whisper for local transcription
-from faster_whisper import WhisperModel
-
 
 class VoiceTranscriptionService:
-    """Service to transcribe voice messages using local Faster-Whisper"""
+    """Service to transcribe voice messages using OpenAI Whisper API or Google Gemini API (fallback)"""
 
     def __init__(self):
         self.wappi_client = WappiClient()
         self.queue_manager = QueueManager()  # Dedicated instance for this consumer
 
-        # Initialize Whisper model (downloads on first run ~150MB)
-        logger.info("Loading Whisper model...")
-        self.whisper_model = WhisperModel(
-            "base",  # Options: tiny, base, small, medium, large-v2
-            device="cpu",
-            compute_type="int8"  # Optimized for CPU
-        )
-        logger.success("Whisper model loaded successfully")
+        # Initialize OpenAI Whisper API (Primary - with OGG to MP3 conversion)
+        logger.info("Initializing OpenAI Whisper API for voice transcription...")
+        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        self.use_openai = True
+        logger.success("OpenAI Whisper API initialized successfully")
 
     def download_audio(self, message_id: str) -> bytes:
         """Download audio file from Wappi API"""
@@ -49,35 +47,118 @@ class VoiceTranscriptionService:
             logger.error(f"Error downloading audio: {e}")
             return None
 
-    def transcribe_with_whisper(self, audio_bytes: bytes) -> str:
-        """Transcribe audio using local Faster-Whisper"""
+    def transcribe_with_openai(self, audio_bytes: bytes) -> str:
+        """Transcribe audio using OpenAI Whisper API with OGG to MP3 conversion"""
+        ogg_file_path = None
+        mp3_file_path = None
         try:
-            # Convert bytes to BytesIO for Whisper
-            audio_buffer = io.BytesIO(audio_bytes)
+            # Save OGG audio to temporary file
+            with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as ogg_file:
+                ogg_file.write(audio_bytes)
+                ogg_file_path = ogg_file.name
 
-            # Transcribe with Whisper
-            segments, info = self.whisper_model.transcribe(
-                audio_buffer,
-                language="ru",  # Force Russian language
-                beam_size=5,
-                vad_filter=True  # Voice Activity Detection - filters silence
-            )
+            logger.debug(f"Saved OGG audio to temp file: {ogg_file_path}")
 
-            # Combine all segments into full transcription
-            transcription = " ".join([segment.text for segment in segments]).strip()
+            # Convert OGG Opus to MP3 using pydub
+            audio = AudioSegment.from_file(ogg_file_path, format="ogg")
+            mp3_file_path = ogg_file_path.replace('.ogg', '.mp3')
+            audio.export(mp3_file_path, format="mp3", bitrate="64k")
+
+            logger.debug(f"Converted OGG to MP3: {mp3_file_path}")
+
+            # Transcribe with OpenAI Whisper
+            with open(mp3_file_path, "rb") as audio_file:
+                transcript = self.openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="ru"  # Russian/Kazakh transcription
+                )
+
+            transcription = transcript.text.strip()
 
             if transcription:
-                logger.success(f"Transcribed: {transcription[:100]}...")
+                logger.success(f"OpenAI Whisper transcribed: {transcription[:100]}...")
                 return transcription
             else:
-                logger.warning("Whisper returned empty transcription")
+                logger.warning("OpenAI Whisper returned empty transcription")
                 return None
 
         except Exception as e:
-            logger.error(f"Whisper transcription error: {e}")
+            logger.error(f"OpenAI Whisper transcription error: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None
+
+        finally:
+            # Clean up temp files
+            if ogg_file_path and os.path.exists(ogg_file_path):
+                try:
+                    os.unlink(ogg_file_path)
+                    logger.debug(f"Cleaned up OGG temp file: {ogg_file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete OGG temp file: {e}")
+
+            if mp3_file_path and os.path.exists(mp3_file_path):
+                try:
+                    os.unlink(mp3_file_path)
+                    logger.debug(f"Cleaned up MP3 temp file: {mp3_file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete MP3 temp file: {e}")
+
+    def transcribe_with_gemini(self, audio_bytes: bytes) -> str:
+        """Transcribe audio using Google Gemini API"""
+        temp_file = None
+        temp_file_path = None
+        try:
+            # Save audio to temporary file (Gemini needs file path)
+            with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_file:
+                temp_file.write(audio_bytes)
+                temp_file_path = temp_file.name
+
+            logger.debug(f"Saved audio to temp file: {temp_file_path}")
+
+            # Upload file to Gemini with explicit MIME type
+            # WhatsApp voice messages are typically Opus codec in OGG container
+            audio_file = genai.upload_file(
+                path=temp_file_path,
+                mime_type="audio/ogg"  # Explicitly set MIME type for OGG audio
+            )
+            logger.debug(f"Uploaded audio file to Gemini: {audio_file.name}")
+
+            # Generate transcription
+            prompt = "Транскрибируй это голосовое сообщение на русском или казахском языке. Верни только текст транскрипции, без комментариев и пояснений."
+
+            response = self.model.generate_content([prompt, audio_file])
+            transcription = response.text.strip()
+
+            # Delete uploaded file from Gemini to save quota
+            try:
+                genai.delete_file(audio_file.name)
+                logger.debug(f"Deleted uploaded file from Gemini: {audio_file.name}")
+            except Exception as e:
+                logger.warning(f"Failed to delete file from Gemini: {e}")
+
+            if transcription:
+                logger.success(f"Gemini transcribed: {transcription[:100]}...")
+                return transcription
+            else:
+                logger.warning("Gemini returned empty transcription")
+                return None
+
+        except Exception as e:
+            logger.error(f"Gemini transcription error: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+
+        finally:
+            # Clean up temp file
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                    logger.debug(f"Cleaned up temp file: {temp_file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete temp file: {e}")
 
     def publish_transcription(
         self,
@@ -144,8 +225,13 @@ class VoiceTranscriptionService:
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
-            # Transcribe
-            transcription = self.transcribe_with_whisper(audio_bytes)
+            # Transcribe using OpenAI Whisper (primary) or Gemini (fallback)
+            if self.use_openai:
+                logger.info("Using OpenAI Whisper for transcription")
+                transcription = self.transcribe_with_openai(audio_bytes)
+            else:
+                logger.info("Using Gemini for transcription")
+                transcription = self.transcribe_with_gemini(audio_bytes)
 
             if transcription:
                 # Update message log

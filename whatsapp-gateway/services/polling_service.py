@@ -112,10 +112,11 @@ class MessagePollingService:
         if not contact_info or not isinstance(contact_info, dict):
             contact_info = {}
 
-        # Get latest message from this chat using /messages/get endpoint
+        # Get latest messages from this chat using /messages/get endpoint
+        # Get up to 20 recent messages to catch rapid sequential messages
         messages_response = self.wappi_client.get_messages(
             chat_id=chat_id,
-            limit=1,  # Get only the last message
+            limit=20,  # Get last 20 messages to catch rapid sequences
             order="desc"  # From newest to oldest
         )
 
@@ -126,108 +127,125 @@ class MessagePollingService:
         if not messages:
             return False
 
-        last_message = messages[0]
+        # Process all unread messages (not already in DB and not from me)
+        new_messages = []
+        for msg in reversed(messages):  # Process oldest to newest
+            if msg is None:
+                continue
 
-        # Check if message is None
-        if last_message is None:
-            logger.debug(f"Message is None for chat {chat_id}")
+            msg_id = msg.get("id")
+            from_me = msg.get("fromMe", False)
+
+            # Skip if already processed or from bot
+            if from_me or self.is_message_processed(msg_id, db):
+                continue
+
+            new_messages.append(msg)
+
+        # If no new messages, return
+        if not new_messages:
             return False
 
-        message_id = last_message.get("id")
+        logger.info(f"📬 Found {len(new_messages)} new messages from {phone_number}")
 
-        # Check if already processed
-        if self.is_message_processed(message_id, db):
-            return False
+        # Process each new message
+        processed_count = 0
+        for message in new_messages:
+            message_id = message.get("id")
+            message_text = message.get("body", "")
+            message_type = message.get("type", "chat")
+            timestamp = message.get("time", int(datetime.now().timestamp()))
 
-        # Check if message is from me (bot)
-        from_me = last_message.get("fromMe", False)
-        if from_me:
-            return False
+            # Handle media messages (body can be dict instead of string)
+            if isinstance(message_text, dict):
+                # For media messages, extract meaningful text description
+                if "title" in message_text:
+                    # PDF or document with title
+                    message_text = f"[{message_text.get('mimetype', 'document')}] {message_text.get('title', 'untitled')}"
+                elif "PTT" in message_text or message_type in ["ptt", "audio"]:
+                    # Voice message
+                    message_text = "[Voice message]"
+                elif "vcard" in message_text:
+                    # Contact card
+                    message_text = f"[Contact] {message_text.get('display_name', 'unknown')}"
+                elif "buttonText" in message_text:
+                    # Interactive message
+                    message_text = f"[Interactive] {message_text.get('buttonText', 'button message')}"
+                elif "URL" in message_text or "url" in message_text:
+                    # Image, video or other media with URL
+                    mimetype = message_text.get("mimetype", "media")
+                    message_text = f"[{mimetype}]"
+                else:
+                    # Generic media message - convert to JSON string
+                    message_text = f"[Media: {message_type}]"
 
-        # Extract message details
-        message_text = last_message.get("body", "")
-        message_type = last_message.get("type", "chat")
-        timestamp = last_message.get("time", int(datetime.now().timestamp()))
+            # Check if voice message
+            is_voice = message_type in ["ptt", "audio"]
 
-        # Handle media messages (body can be dict instead of string)
-        if isinstance(message_text, dict):
-            # For media messages, extract meaningful text description
-            if "title" in message_text:
-                # PDF or document with title
-                message_text = f"[{message_text.get('mimetype', 'document')}] {message_text.get('title', 'untitled')}"
-            elif "PTT" in message_text or message_type in ["ptt", "audio"]:
-                # Voice message
-                message_text = "[Voice message]"
-            elif "vcard" in message_text:
-                # Contact card
-                message_text = f"[Contact] {message_text.get('display_name', 'unknown')}"
-            elif "buttonText" in message_text:
-                # Interactive message
-                message_text = f"[Interactive] {message_text.get('buttonText', 'button message')}"
-            elif "URL" in message_text or "url" in message_text:
-                # Image, video or other media with URL
-                mimetype = message_text.get("mimetype", "media")
-                message_text = f"[{mimetype}]"
-            else:
-                # Generic media message - convert to JSON string
-                message_text = f"[Media: {message_type}]"
-
-        # Check if voice message
-        is_voice = message_type in ["ptt", "audio"]
-
-        # Create message data
-        message_data = {
-            "message_id": message_id,
-            "chat_id": chat_id,
-            "phone_number": phone_number,
-            "sender_name": contact_info.get("FirstName", ""),
-            "message_text": message_text,
-            "is_voice": is_voice,
-            "timestamp": datetime.fromtimestamp(timestamp).isoformat(),
-            "contact_info": {
-                "FirstName": contact_info.get("FirstName", ""),
-                "FullName": contact_info.get("FullName", ""),
-                "PushName": contact_info.get("PushName", ""),
-                "BusinessName": contact_info.get("BusinessName", "")
+            # Create message data
+            message_data = {
+                "message_id": message_id,
+                "chat_id": chat_id,
+                "phone_number": phone_number,
+                "sender_name": contact_info.get("FirstName", ""),
+                "message_text": message_text,
+                "is_voice": is_voice,
+                "timestamp": datetime.fromtimestamp(timestamp).isoformat(),
+                "contact_info": {
+                    "FirstName": contact_info.get("FirstName", ""),
+                    "FullName": contact_info.get("FullName", ""),
+                    "PushName": contact_info.get("PushName", ""),
+                    "BusinessName": contact_info.get("BusinessName", "")
+                }
             }
-        }
 
-        # Save to database
-        try:
-            message_log = MessageLog(
-                message_id=message_id,
-                phone_number=phone_number,
-                direction="incoming",
-                message_text=message_text,
-                is_voice=is_voice,
-                queue_status="queued",
-                wappi_status="received"
-            )
-            db.add(message_log)
-            db.commit()
-            logger.success(f"💾 Saved message from {phone_number}: {message_text[:50]}")
-        except Exception as e:
-            logger.error(f"Failed to save message to database: {e}")
-            db.rollback()
-            return False
+            # Save to database
+            try:
+                # Check if message already exists
+                existing_message = db.query(MessageLog).filter(
+                    MessageLog.message_id == message_id
+                ).first()
 
-        # Route to appropriate queue
-        if is_voice:
-            # Publish to voice transcription queue
-            queue_manager.publish(
-                settings.QUEUE_VOICE_TRANSCRIPTION,
-                message_data
-            )
-            logger.info(f"📢 Published voice message to transcription queue")
-        else:
-            # Publish to incoming messages queue
-            queue_manager.publish(
-                settings.QUEUE_INCOMING_MESSAGES,
-                message_data
-            )
-            logger.info(f"📢 Published text message to AI queue")
+                if existing_message:
+                    logger.debug(f"Message {message_id} already exists in database, skipping save")
+                else:
+                    message_log = MessageLog(
+                        message_id=message_id,
+                        phone_number=phone_number,
+                        direction="incoming",
+                        message_text=message_text,
+                        is_voice=is_voice,
+                        queue_status="queued",
+                        wappi_status="received"
+                    )
+                    db.add(message_log)
+                    db.commit()
+                    logger.success(f"💾 Saved message from {phone_number}: {message_text[:50]}")
+            except Exception as e:
+                logger.error(f"Failed to save message to database: {e}")
+                db.rollback()
+                continue
 
-        return True
+            # Route to appropriate queue
+            if is_voice:
+                # Publish to voice transcription queue
+                queue_manager.publish(
+                    settings.QUEUE_VOICE_TRANSCRIPTION,
+                    message_data
+                )
+                logger.info(f"📢 Published voice message to transcription queue")
+            else:
+                # Publish to incoming messages queue
+                queue_manager.publish(
+                    settings.QUEUE_INCOMING_MESSAGES,
+                    message_data
+                )
+                logger.info(f"📢 Published text message to AI queue")
+
+            processed_count += 1
+
+        logger.success(f"✅ Processed {processed_count}/{len(new_messages)} messages from {phone_number}")
+        return processed_count > 0
 
     async def start_polling(self) -> None:
         """Start continuous polling loop"""
